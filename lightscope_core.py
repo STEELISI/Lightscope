@@ -51,11 +51,6 @@ class Packet_Wrapper:
     def __init__(self,current_packet,packet_number):
         self.packet = current_packet
         self.packet_num=packet_number
-        
-class SYN_Wrapper:
-    def __init__(self,current_packet,packet_time):
-        self.packet = current_packet
-        self.packet_time=packet_time
 
 
     
@@ -85,6 +80,8 @@ class Ports:
         self.num_total_tcp_packets=0
         self.num_unwanted_tcp_packets=0
         self.lookup_ip_list={}
+        self.report_output_buffer=[]
+        self.report_batch_length=10
 
 
     def ip_to_int(self,ip_str):
@@ -123,14 +120,14 @@ class Ports:
 
         parts = ip_str.split('.')
         if len(parts) != 4:
-            print("Invalid IPv4 address.")
+            self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
             self.lookup_ip_list[ip_str]=("error", "Invalid IPv4 address 4 parts")
             return ("error", "Invalid IPv4 address 4 parts")
         try:
             first_octet = int(parts[0])
             second_octet = int(parts[1])
         except ValueError:
-            print("Invalid IPv4 address.")
+            self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
             self.lookup_ip_list[ip_str]=("error", "Invalid IPv4 address octets")
             return ("error", "Invalid IPv4 address octets")
 
@@ -507,8 +504,22 @@ class Ports:
                                 "TCP",str(current_packet.packet[TCP].flags),current_packet.packet_num,str(load),\
                                 reason,confidence)
         self.log_local_terminal_and_GUI_WARN(f"Report_unwanted_traffic {current_packet.packet.payload}, packet num {current_packet.packet_num} payload{load}",5)
-        self.log_local_terminal_and_GUI_WARN(f"Report_unwanted_traffic {current_packet.packet.payload}, packet num {current_packet.packet_num} payload{load}",5)
         self.log_local_terminal_and_GUI_WARN(f"Unwanted traffic dump {current_packet.packet.show(dump=True)}",5)
+
+
+        self.report_output_buffer.append(current_packet)
+        self.log_local_terminal_and_GUI_WARN(f"Record added to self.report_output_buffer, which now has len {len(self.report_output_buffer)} and self.report_batch_length {self.report_batch_length}",4)
+
+        if len(self.report_output_buffer) % self.report_batch_length ==0:
+            try:
+                self.Connect_and_report()
+
+            except Exception as e:
+                self.log_local_terminal_and_GUI_WARN(f"connection error to mysql {e}",5)
+                
+
+
+    def Connect_and_report(self):
 
         mydb = mysql.connector.connect(
           host="3.130.64.19",
@@ -518,137 +529,112 @@ class Ports:
           database="lightscope"
         )
         mycursor = mydb.cursor()
-        '''
-        sql = "INSERT INTO "+self.database +" (\
-            unwanted_IP_src,\
-            unwanted_TCP_sport,\
-            unwanted_IP_dst,\
-            unwanted_TCP_dport,\
-            protocol,\
-            unwanted_TCP_flags,\
-            packet_length,\
-            num_total_tcp_packets,\
-            num_unwanted_tcp_packets\
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s,%s, %s)"
-        val = (\
-            current_packet.packet[IP].src,\
-            current_packet.packet[TCP].sport,\
-            #current_packet.packet[IP].dst,\
-            #randomize the IP address
-            randomize_ip(current_packet.packet[IP].dst),\
-            current_packet.packet[TCP].dport,\
-            "TCP",\
-            str(current_packet.packet[TCP].flags),\
-            str(len(current_packet.packet)),\
-            self.num_total_tcp_packets,\
-            self.num_unwanted_tcp_packets\
+
+
+        while 0 <len(self.report_output_buffer):
+            current_packet=self.report_output_buffer[0]
+
+            sql = "INSERT INTO "+self.database +" (\
+                system_time  ,\
+                ip_version  ,\
+                ip_ihl      ,\
+                ip_tos      ,\
+                ip_len      ,\
+                ip_id       ,\
+                ip_flags    ,\
+                ip_frag     ,\
+                ip_ttl      ,\
+                ip_proto    ,\
+                ip_chksum   ,\
+                ip_src      ,\
+                ip_dst_randomized,\
+                ip_options  ,\
+                tcp_sport   ,\
+                tcp_dport   ,\
+                tcp_seq     ,\
+                tcp_ack     ,\
+                tcp_dataofs ,\
+                tcp_reserved,\
+                tcp_flags   ,\
+                tcp_window  ,\
+                tcp_chksum  ,\
+                tcp_urgptr  ,\
+                dst_ip_country  ,\
+                dst_ip_net_type  ,\
+                tcp_options \
+            ) VALUES ( %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s,%s,%s,%s, %s)"
+            val = (\
+                #system_time
+                current_packet.packet.time,\
+                #ip_version  ,\
+                current_packet.packet[IP].version,\
+                #ip_ihl      ,\
+                current_packet.packet[IP].ihl,\
+                #ip_tos      ,\
+                current_packet.packet[IP].tos,\
+                #ip_len      ,\
+                current_packet.packet[IP].len,\
+                #ip_id       ,\
+                current_packet.packet[IP].id,\
+                #ip_flags    ,\
+                ','.join(str(v) for v in current_packet.packet[IP].flags),\
+                #"test",\
+                #ip_frag     ,\
+                current_packet.packet[IP].frag,\
+                #ip_ttl      ,\
+                current_packet.packet[IP].ttl,\
+                #ip_proto    ,\
+                current_packet.packet[IP].proto,\
+                #ip_chksum   ,\
+                current_packet.packet[IP].chksum,\
+                #ip_src      ,\
+                current_packet.packet[IP].src,\
+                #ip_dst_randomized      ,\
+                self.randomize_ip(current_packet.packet[IP].dst),\
+                #ip_options  ,\
+                ','.join(str(v) for v in current_packet.packet[IP].options),\
+                #"test",\
+                #tcp_sport   ,\
+                current_packet.packet[TCP].sport,\
+                #tcp_dport   ,\
+                current_packet.packet[TCP].dport,\
+                #tcp_seq     ,\
+                current_packet.packet[TCP].seq,\
+                #tcp_ack     ,\
+                current_packet.packet[TCP].ack,\
+                #tcp_dataofs ,\
+                current_packet.packet[TCP].dataofs,\
+                #tcp_reserved,\
+                current_packet.packet[TCP].reserved,\
+                #tcp_flags   ,\
+                ','.join(str(v) for v in current_packet.packet[TCP].flags),\
+                #"test",\
+                #tcp_window  ,\
+                current_packet.packet[TCP].window,\
+                #tcp_chksum  ,\
+                current_packet.packet[TCP].chksum,\
+                #tcp_urgptr  ,\
+                current_packet.packet[TCP].urgptr,\
+                #dst_ip_country  ,\
+                self.lookup_ip (current_packet.packet[IP].dst)[0],\
+                #dst_ip_net_type  ,\
+                self.lookup_ip (current_packet.packet[IP].dst)[1],\
+
+
+                #tcp_options ,\ 
+                ','.join(str(v) for v in current_packet.packet[TCP].options),\
+                #"test",\
                 )
-        mycursor.execute(sql, val)
+            self.log_local_terminal_and_GUI_WARN(f"Record added to MYSQL DB {val}",4)
+            mycursor.execute(sql, val)
 
-        mydb.commit()
-        '''
-
-
-        sql = "INSERT INTO "+self.database +" (\
-            ip_version  ,\
-            ip_ihl      ,\
-            ip_tos      ,\
-            ip_len      ,\
-            ip_id       ,\
-            ip_flags    ,\
-            ip_frag     ,\
-            ip_ttl      ,\
-            ip_proto    ,\
-            ip_chksum   ,\
-            ip_src      ,\
-            ip_dst_randomized,\
-            ip_options  ,\
-            tcp_sport   ,\
-            tcp_dport   ,\
-            tcp_seq     ,\
-            tcp_ack     ,\
-            tcp_dataofs ,\
-            tcp_reserved,\
-            tcp_flags   ,\
-            tcp_window  ,\
-            tcp_chksum  ,\
-            tcp_urgptr  ,\
-            dst_ip_country  ,\
-            dst_ip_net_type  ,\
-            tcp_options \
-        ) VALUES ( %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s,%s,%s,%s, %s)"
-        val = (\
-
-            #ip_version  ,\
-            current_packet.packet[IP].version,\
-            #ip_ihl      ,\
-            current_packet.packet[IP].ihl,\
-            #ip_tos      ,\
-            current_packet.packet[IP].tos,\
-            #ip_len      ,\
-            current_packet.packet[IP].len,\
-            #ip_id       ,\
-            current_packet.packet[IP].id,\
-            #ip_flags    ,\
-            ','.join(str(v) for v in current_packet.packet[IP].flags),\
-            #"test",\
-            #ip_frag     ,\
-            current_packet.packet[IP].frag,\
-            #ip_ttl      ,\
-            current_packet.packet[IP].ttl,\
-            #ip_proto    ,\
-            current_packet.packet[IP].proto,\
-            #ip_chksum   ,\
-            current_packet.packet[IP].chksum,\
-            #ip_src      ,\
-            current_packet.packet[IP].src,\
-            #ip_dst_randomized      ,\
-            self.randomize_ip(current_packet.packet[IP].dst),\
-            #ip_options  ,\
-            ','.join(str(v) for v in current_packet.packet[IP].options),\
-            #"test",\
-            #tcp_sport   ,\
-            current_packet.packet[TCP].sport,\
-            #tcp_dport   ,\
-            current_packet.packet[TCP].dport,\
-            #tcp_seq     ,\
-            current_packet.packet[TCP].seq,\
-            #tcp_ack     ,\
-            current_packet.packet[TCP].ack,\
-            #tcp_dataofs ,\
-            current_packet.packet[TCP].dataofs,\
-            #tcp_reserved,\
-            current_packet.packet[TCP].reserved,\
-            #tcp_flags   ,\
-            ','.join(str(v) for v in current_packet.packet[TCP].flags),\
-            #"test",\
-            #tcp_window  ,\
-            current_packet.packet[TCP].window,\
-            #tcp_chksum  ,\
-            current_packet.packet[TCP].chksum,\
-            #tcp_urgptr  ,\
-            current_packet.packet[TCP].urgptr,\
-            #dst_ip_country  ,\
-            self.lookup_ip (current_packet.packet[IP].dst)[0],\
-            #dst_ip_net_type  ,\
-            self.lookup_ip (current_packet.packet[IP].dst)[1],\
+            mydb.commit()
+            del self.report_output_buffer[0]
 
 
-            #tcp_options ,\ 
-            ','.join(str(v) for v in current_packet.packet[TCP].options),\
-            #"test",\
-            )
+
+        self.log_local_terminal_and_GUI_WARN("sql done?",3)
         
-            
-        print(val)    
-        mycursor.execute(sql, val)
-
-        mydb.commit()
-
-
-
-
-        print("sql done?")
 
 
 
