@@ -82,6 +82,7 @@ class Ports:
         self.lookup_ip_list={}
         self.report_output_buffer=[]
         self.report_batch_length=10
+        self.args=args
 
 
     def ip_to_int(self,ip_str):
@@ -673,19 +674,27 @@ class Ports:
     
         
     def Process_ARP(self,current_packet):
+
+
+        if self.args.collection_ip == "all":
         
-        if current_packet.packet.haslayer(ARP):# 
-            #Add the sender of the ARP request, we know they are there
-            self.ARP_add_hosts(current_packet)
-            self.ARP_add_request_watch(current_packet)
-            #TODO: maybe change logic here to detect MAC issues with ip addresses and ARP, for now if it's responding/originating ARP then you can remove unreplied ARPs
-            self.Clear_unreplied_ARPs(current_packet)
-            self.Remove_ARP_from_watch(current_packet)
-            #print("ARPPPPPPPPPPPPPPPPPPPPPP")
-            #print(current_packet.packet[ARP].op)
-            #print(current_packet.packet)
-            #print("detected psrc")
-            #print(current_packet.packet[ARP].psrc)
+            if current_packet.packet.haslayer(ARP):# 
+                #Add the sender of the ARP request, we know they are there
+                self.ARP_add_hosts(current_packet)
+                self.ARP_add_request_watch(current_packet)
+                #TODO: maybe change logic here to detect MAC issues with ip addresses and ARP, for now if it's responding/originating ARP then you can remove unreplied ARPs
+                self.Clear_unreplied_ARPs(current_packet)
+                self.Remove_ARP_from_watch(current_packet)
+                #print("ARPPPPPPPPPPPPPPPPPPPPPP")
+                #print(current_packet.packet[ARP].op)
+                #print(current_packet.packet)
+                #print("detected psrc")
+                #print(current_packet.packet[ARP].psrc)
+        elif len(self.currently_open_ip_list) ==0:
+            self.currently_open_ip_list[self.args.collection_ip]={}
+            self.log_local_terminal_and_GUI_WARN(f"Only monitoring single ip via config.ini file entry collection_ip != any, {self.args.collection_ip}, ARP traffic ingnored ",6)
+        else:
+            pass
             
     
     def Shutdown_cleanup(self):

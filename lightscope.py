@@ -323,6 +323,7 @@ class config_arguments:
         self.pcap = False
         self.database = False
         self.readfile = ""
+        self.collection_ip=""
         
         # Load values from the config file.
         self.load_config(config_file)
@@ -339,6 +340,7 @@ class config_arguments:
             self.pcap = config.getboolean('Settings', 'pcap', fallback=self.pcap)
             self.database = config.get('Settings', 'database', fallback=self.database)
             self.readfile = config.get('Settings', 'readfile', fallback=self.readfile)
+            self.collection_ip=config.get('Settings', 'collection_ip', fallback="all")
         else:
             print("Warning: 'Settings' section not found in the config file.")
 
@@ -349,36 +351,11 @@ class config_arguments:
                 f"Saving traffic to local pcap? {self.pcap}\n"
                 f"Remote database selected? {self.database}\n"
                 f"Read File selected? {self.readfile}\n"
-                f"Interface {self.interface}\n")
+                f"Interface {self.interface}\n"
+                f"Collecting from IPs {self.collection_ip}\n")
 
 ############# MAIN ########################
-'''
-parser = argparse.ArgumentParser()
 
-parser.add_argument('--gui', action='store_true')
-parser.set_defaults(gui=False)
-
-parser.add_argument('--pcap', action='store_true',default=False)
-
-parser.add_argument('--interface')
-parser.set_defaults(interface="Ethernet")
-
-parser.add_argument('--database')
-parser.set_defaults(interface="lightscope1")
-
-parser.add_argument('--verbose',type=int,choices=range(0, 6),default=5)
-
-parser.add_argument('--readfile')
-parser.set_defaults(interface="")
-
-args = parser.parse_args()
-
-print(f"GUI mode enabled {args.gui}")
-print(f"Verbose level {args.verbose} (6 is silent, 5 is unwanted traffic only, 4 includes local hosts discovered, 3 includes ports opened and closed,... 0 is everything ")
-print(f"Saving traffic to local pcap? {args.pcap} ")
-print(f"Remote database selected? {args.database} ")
-print(f"Read File selected? {args.readfile} ")
-'''
 
 args = config_arguments('config.ini')
 
