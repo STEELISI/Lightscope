@@ -23,6 +23,7 @@ import os
 
 import argparse
 import configparser
+import json
 
 
 
@@ -186,6 +187,13 @@ def start_live_capture(interface):
     packet_number = 0
     Port_status=Ports(args)
     
+    internal_ip=Port_status.get_internal_host_ip()
+    #print(internal_ip)
+    interface=Port_status.get_interface_name(internal_ip)
+    print(f"collecting on interface {interface}")
+    Port_status.update_external_ip()
+        
+
     print(f"Platform {platform} detected")
     if(platform == 'linux'):
 
@@ -324,6 +332,7 @@ class config_arguments:
         self.database = False
         self.readfile = ""
         self.collection_ip=""
+        self.ports_to_forward=[]
         
         # Load values from the config file.
         self.load_config(config_file)
@@ -334,13 +343,13 @@ class config_arguments:
         
         # Assuming all configuration is under the [Settings] section.
         if 'Settings' in config:
-            self.interface = config.get('Settings', 'interface', fallback=self.readfile)
-            self.gui = config.getboolean('Settings', 'gui', fallback=self.gui)
             self.verbose = config.getint('Settings', 'verbose', fallback=self.verbose)
-            self.pcap = config.getboolean('Settings', 'pcap', fallback=self.pcap)
-            self.database = config.get('Settings', 'database', fallback=self.database)
-            self.readfile = config.get('Settings', 'readfile', fallback=self.readfile)
-            self.collection_ip=config.get('Settings', 'collection_ip', fallback="all")
+            self.database = config.get('Settings', 'database', fallback=self.database).lower()
+            self.collection_ip=config.get('Settings', 'collection_ip', fallback="all").lower()
+            self.ports_to_forward=config.get('Settings', 'ports_to_forward', fallback=[])
+
+
+
         else:
             print("Warning: 'Settings' section not found in the config file.")
 
@@ -352,49 +361,35 @@ class config_arguments:
                 f"Remote database selected? {self.database}\n"
                 f"Read File selected? {self.readfile}\n"
                 f"Interface {self.interface}\n"
+                f"Forwarding ports {self.ports_to_forward} to honeypot \n"
                 f"Collecting from IPs {self.collection_ip}\n")
+
 
 ############# MAIN ########################
 
 
 args = config_arguments('config.ini')
+print(str(config_arguments('config.ini')))
 
-print(f"GUI mode enabled {args.gui}")
-print(f"Verbose level {args.verbose} (6 is silent, 5 is unwanted traffic only, 4 includes local hosts discovered, 3 includes ports opened and closed,... 0 is everything ")
-print(f"Saving traffic to local pcap? {args.pcap} ")
-print(f"Remote database selected? {args.database} ")
-print(f"Read File selected? {args.readfile} ")
+def start_live_honeypot_forward(args):
+    forwarder=honeypot_fwd(args)
+    INTERFACE = forwarder.INTERFACE
+    sniff(
+        iface=INTERFACE,
 
-
-
+        prn=forwarder.forward_packet,
+        store=0
+    )
 
 
 timenow=datetime.datetime.now()
 
-# Arrange different file path for different Operating Systems (OS)
-if(platform == 'linux'):
-    myinputfile = resource_path("test_cases/lightscope_134_arp_tcp_webserver_test.pcapng")
-    #myinputfile = "C:\\Users\\Eric\\OneDrive - University of Southern California\\iTrust Data\\lightscope_134_arp_tcp_webserver_test.pcapng"
-elif (platform == 'darwin'):
-    # if system is mac
-    myinputfile = resource_path("test_cases/lightscope_134_arp_tcp_webserver_test.pcapng")
-else:
-    # if system is Windows
-    #myinputfile = "C:\\Users\\Eric\\OneDrive - University of Southern California\\iTrust Data\\EPIC Blaq hammer hackers.pcapng"
-    #myinputfile="C:\\Users\\Eric\\Desktop\\Lightscope_Test_Network\\t1.pcapng"
-    #myinputfile="C:\\Users\\Eric\\Desktop\\Lightscope_Test_Network\\lightscope_namp.pcapng"
-    #myinputfile="C:\\Users\\Eric\\Desktop\\Lightscope_Test_Network\\dota1.pcapng"
-    # myinputfile="C:\\Users\\Eric\\Desktop\\Lightscope_Test_Network\\runzero.pcapng"
-    #myinputfile="C:\\Users\\Eric\\Desktop\\Lightscope_Test_Network\\runzero2.pcapng"
-    myinputfile= resource_path("test_cases\\lightscope_134_arp_tcp_webserver_test.pcapng")
-    interface = 'Device\\NPF_{5B6D9641-EB9E-447C-8BEC-CDC75FF53DBD}' #'\\Device\\NPF_{190996FD-851B-4F85-ADAB-B49382303C33}'
+
 stop_event = Event()
 packet_buf = []
 
 #headless mode
 stop_event.clear()
-if args.readfile == "None":
-    capture_thread = Thread(target=start_live_capture, args=(args.interface,))
-else:
-    capture_thread = Thread(target=read_from_file, args=())
+capture_thread = Thread(target=start_live_capture, args=(args.interface,))
+honeypot_forward_thread = Thread(target=start_live_honeypot_forward, args=(args,))
 capture_thread.start()

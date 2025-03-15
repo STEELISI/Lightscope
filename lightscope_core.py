@@ -32,6 +32,14 @@ import ipaddress
 import bisect
 import sys
 
+from scapy.all import *
+from collections import deque 
+import random
+
+import socket
+import psutil
+import requests
+
 
 verbose=1
 if verbose == 0:
@@ -79,10 +87,29 @@ class Ports:
         self.verbose=args.verbose
         self.num_total_tcp_packets=0
         self.num_unwanted_tcp_packets=0
-        self.lookup_ip_list={}
+        self.lookup_network_information_list={}
         self.report_output_buffer=[]
         self.report_batch_length=10
         self.args=args
+        self.check_if_ip_changed_packet_interval=2000
+        self.external_ip=""
+        self.internal_ip=""
+        self.asn=0
+        self.external_network_information=""
+
+
+    def update_external_ip(self):
+        response = requests.get("https://ipinfo.io/what-is-my-ip")
+        response=response.json()
+        self.external_ip=response["ip"]
+        self.log_local_terminal_and_GUI_WARN(f"external IP found {response["ip"]}" ,5)
+        self.update_network_information(self.external_ip)
+        
+
+
+    def update_network_information(self,external_ip):
+        self.external_network_information=self.lookup_network_information(external_ip)
+        self.log_local_terminal_and_GUI_WARN(f"external_network_information found {self.external_network_information}" ,5)
 
 
     def ip_to_int(self,ip_str):
@@ -108,45 +135,45 @@ class Ports:
         pos = bisect.bisect_right(starts, second_octet) - 1
         if pos < 0:
             # No start <= second_octet
-            self.lookup_ip_list[ip_str]=("error", "No start <= second_octet")
+            self.lookup_network_information_list[ip_str]=("error", "No start <= second_octet")
             return ("error", "No start <= second_octet")
 
         chosen_start = starts[pos]
         return os.path.join(directory, f"{chosen_start}.txt")
 
-    def lookup_ip(self,ip_str, base_dir="hierarchical_IP_tree"):
+    def lookup_network_information(self,ip_str, base_dir="hierarchical_IP_tree"):
         ip_str=str(ip_str)
-        if ip_str in self.lookup_ip_list:
-            return self.lookup_ip_list[ip_str]
+        if ip_str in self.lookup_network_information_list:
+            return self.lookup_network_information_list[ip_str]
 
         parts = ip_str.split('.')
         if len(parts) != 4:
             self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
-            self.lookup_ip_list[ip_str]=("error", "Invalid IPv4 address 4 parts")
+            self.lookup_network_information_list[ip_str]=("error", "Invalid IPv4 address 4 parts")
             return ("error", "Invalid IPv4 address 4 parts")
         try:
             first_octet = int(parts[0])
             second_octet = int(parts[1])
         except ValueError:
             self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
-            self.lookup_ip_list[ip_str]=("error", "Invalid IPv4 address octets")
+            self.lookup_network_information_list[ip_str]=("error", "Invalid IPv4 address octets")
             return ("error", "Invalid IPv4 address octets")
 
         # Construct the directory for the first octet
         first_octet_dir = os.path.join(base_dir, str(first_octet))
         if not os.path.isdir(first_octet_dir):
             # No directory for this first octet
-            self.lookup_ip_list[ip_str]=("error", "first octet filepath")
+            self.lookup_network_information_list[ip_str]=("error", "first octet filepath")
             return ("error", "first octet filepath")
 
         # Find the appropriate file for the second octet
         file_path = self.find_file_for_second_octet(first_octet_dir, second_octet)
         if file_path is None or not os.path.exists(file_path):
             # No file for this second octet range
-            self.lookup_ip_list[ip_str]=("error", "second octet filepath")
+            self.lookup_network_information_list[ip_str]=("error", "second octet filepath")
             return ("error", "second octet filepath")
 
-        lookup_ip_int = self.ip_to_int(ip_str)
+        lookup_network_information_int = self.ip_to_int(ip_str)
 
         # Search within this file's ranges
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -166,12 +193,12 @@ class Ports:
                     # Skip invalid IP
                     continue
 
-                if start_ip_int <= lookup_ip_int <= end_ip_int:
-                    self.lookup_ip_list[ip_str]=(net_type, country)
+                if start_ip_int <= lookup_network_information_int <= end_ip_int:
+                    self.lookup_network_information_list[ip_str]=(net_type, country)
                     return (net_type, country)
 
 
-        self.lookup_ip_list[ip_str]=("None", "IP not in dataset")
+        self.lookup_network_information_list[ip_str]=("None", "IP not in dataset")
         return ("None", "IP not in dataset")
 
     
@@ -617,9 +644,11 @@ class Ports:
                 #tcp_urgptr  ,\
                 current_packet.packet[TCP].urgptr,\
                 #dst_ip_country  ,\
-                self.lookup_ip (current_packet.packet[IP].dst)[0],\
+                #self.lookup_network_information (current_packet.packet[IP].dst)[0],\
+                self.external_network_information[0],\
                 #dst_ip_net_type  ,\
-                self.lookup_ip (current_packet.packet[IP].dst)[1],\
+                #self.lookup_network_information (current_packet.packet[IP].dst)[1],\
+                self.external_network_information[1],\
 
 
                 #tcp_options ,\ 
@@ -672,12 +701,48 @@ class Ports:
                     self.ARP_requests.append(current_packet)
             
     
-        
+    def check_if_internal_ip_changed(self):
+        current_internal_ip=self.get_internal_host_ip()
+        if self.internal_ip !=current_internal_ip:
+            self.internal_ip=current_internal_ip
+
+            if self.internal_ip not in self.currently_open_ip_list:
+                self.currently_open_ip_list[self.internal_ip]={}
+
+            self.update_external_ip()
+
+        return self.internal_ip
+
+
+
+    def update_internal_ip(self,current_packet):
+        if self.args.collection_ip == "self":
+            if current_packet.packet_num % self.check_if_ip_changed_packet_interval ==0:
+                self.check_if_internal_ip_changed()
+    
+    def get_internal_host_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Connect to an external IP address (Google DNS) on port 80.
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = '127.0.0.1'
+        finally:
+            s.close()
+        return ip
+    
+    def get_interface_name(self,ip_address):
+    # Iterate over all network interfaces and their addresses.
+        for interface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and addr.address == ip_address:
+                    return interface
+        return None
+                    
     def Process_ARP(self,current_packet):
-
-
+        #if collecting on all IPs use ARP method
         if self.args.collection_ip == "all":
-        
             if current_packet.packet.haslayer(ARP):# 
                 #Add the sender of the ARP request, we know they are there
                 self.ARP_add_hosts(current_packet)
@@ -685,16 +750,17 @@ class Ports:
                 #TODO: maybe change logic here to detect MAC issues with ip addresses and ARP, for now if it's responding/originating ARP then you can remove unreplied ARPs
                 self.Clear_unreplied_ARPs(current_packet)
                 self.Remove_ARP_from_watch(current_packet)
-                #print("ARPPPPPPPPPPPPPPPPPPPPPP")
-                #print(current_packet.packet[ARP].op)
-                #print(current_packet.packet)
-                #print("detected psrc")
-                #print(current_packet.packet[ARP].psrc)
-        elif len(self.currently_open_ip_list) ==0:
-            self.currently_open_ip_list[self.args.collection_ip]={}
-            self.log_local_terminal_and_GUI_WARN(f"Only monitoring single ip via config.ini file entry collection_ip != any, {self.args.collection_ip}, ARP traffic ingnored ",6)
+                '''
+        elif len(self.currently_open_ip_list) ==0: #If we don't have any IPs listed, i.e. we are in config stage of first run
+            if self.args.collection_ip == "self":
+                internal_ip=self.check_if_internal_ip_changed()
+                self.log_local_terminal_and_GUI_WARN(f"Monitoring our own IP, which we determine to be, {internal_ip}, ARP traffic ingnored ",6)
+            elif self.args.collection_ip.count('.') ==3 : #User defined IP address  
+                self.currently_open_ip_list[self.args.collection_ip]={}
+                self.log_local_terminal_and_GUI_WARN(f"Only monitoring single ip via config.ini file entry collection_ip != all, {self.args.collection_ip}, ARP traffic ingnored ",6)
         else:
             pass
+        '''
             
     
     def Shutdown_cleanup(self):
@@ -723,6 +789,8 @@ class Ports:
     def Process_packet(self,current_packet):
         self.Process_ARP(current_packet)
         self.Process_TCP(current_packet)
+        self.update_internal_ip(current_packet)
+
            
         
         
@@ -732,6 +800,158 @@ class Ports:
             logging.warn(event_string)
             if self.gui:
                 eel.LogEvent(event_string)
+
+
+
+
+
+    
+
+
+#LightScope will see these replies and think the port is open. Need to keep track in LightScope of which are real replies and which are us
+
+class honeypot_fwd:
+
+    def __init__(self,args):
+
+        #self.INTERFACE = "eth0"  # Adjust if needed
+        self.INTERFACE = args.interface  # Adjust if needed
+
+        self.attacker_facing_forwarding_rules ={}
+        self.honeypot_facing_forwarding_rules={}
+        production_port="12345"
+        honeypot_port="12345"
+        production_ip="172.31.13.133"
+        honeypot_ip="128.9.28.79"
+        self.attacker_facing_forwarding_rules[production_ip+":"+production_port]= (honeypot_ip, honeypot_port)
+        self.honeypot_facing_forwarding_rules[honeypot_ip+":"+honeypot_port]= production_ip
+
+        production_port="8080"
+        honeypot_port="80"
+        production_ip="172.31.13.133"
+        honeypot_ip="128.9.28.79"
+        self.attacker_facing_forwarding_rules[production_ip+":"+production_port]= (honeypot_ip, honeypot_port)
+        self.honeypot_facing_forwarding_rules[honeypot_ip+":"+honeypot_port]= production_ip
+        self.nat_table_max_size=10
+
+        self.attacker_facing_nat_table={}
+        self.honeypot_facing_nat_table={}
+        self.ring_buffer_helper=deque([])
+        random_number = random.randint(1, 1000)
+        self.min_eport=11000 + random_number
+        self.max_eport=16000
+        self.tmp_eport=self.min_eport
+
+
+
+        
+
+        self.sckt = conf.L3socket(iface=self.INTERFACE)
+
+    def forward_packet(self,pkt):
+        self.tmp_eport
+        if IP in pkt and TCP in pkt:
+            ip = pkt[IP]
+            tcp = pkt[TCP]
+        
+            # Check if it's traffic to the forwarder (i.e., SSH to 192.168.10.138:22)
+            #if ip.dst == PRODUCTION_IP and tcp.dport == FORWARDER_PORT:
+            #if ip.dst == PRODUCTION_IP and str(tcp.dport) in self.attacker_facing_forwarding_rules.keys():
+            #if production IP and dest port in our honeypot forwarding rules
+            from_attacker_key=str(ip.dst)+":"+str(tcp.dport)
+            from_honeypot_key=str(ip.src)+":"+str(tcp.sport)
+            print(f"*pck seen {pkt}")
+            #print(f"*pckt recv from_attacker_key {from_attacker_key}, self.attacker_facing_forwarding_rules.keys() {self.attacker_facing_forwarding_rules.keys()}")
+            if from_attacker_key in self.attacker_facing_forwarding_rules.keys():
+                print(f"****Found {from_attacker_key} in self.attacker_facing_forwarding_rules.keys(), forwarding to honeypot")
+
+
+                # Rewrite destination to 192.168.10.139:22
+
+                attacker_facing_nat_key=str(ip.src)+":"+str(tcp.sport)
+                #if we don't have an existing NAT rule
+                if attacker_facing_nat_key not in self.attacker_facing_nat_table:
+                    if  len(self.ring_buffer_helper) > self.nat_table_max_size:
+                        delete_nat_key=self.ring_buffer_helper.pop()
+                        delete_e_port=self.attacker_facing_nat_table[delete_nat_key]
+                        del self.attacker_facing_nat_table[delete_nat_key]
+                        del self.honeypot_facing_nat_table[delete_e_port]
+
+                    self.ring_buffer_helper.appendleft(attacker_facing_nat_key)
+                    self.attacker_facing_nat_table[attacker_facing_nat_key]=self.tmp_eport
+                    self.honeypot_facing_nat_table[self.tmp_eport]=(ip.src,tcp.sport,tcp.dport)
+                    print(f"****Adding NAT entry for ip.src {ip.src} tcp.sport {tcp.sport} self.tmp_eport {self.tmp_eport} tcp.dport {tcp.dport} lengths {len(self.attacker_facing_nat_table)} {len(self.honeypot_facing_nat_table)} ")
+                    #print(self.attacker_facing_nat_table.keys())
+                    self.tmp_eport=self.tmp_eport+1
+                    if self.tmp_eport==self.max_eport:
+                        self.tmp_eport=self.min_eport
+
+
+
+                ephemeral_port=self.attacker_facing_nat_table[attacker_facing_nat_key]
+
+                (HONEYPOT_IP, HONEYPOT_PORT)= self.attacker_facing_forwarding_rules[from_attacker_key]
+
+                #print(f"********Forwarding traffic to HONEYPOT_IP {HONEYPOT_IP} HONEYPOT_PORT {HONEYPOT_PORT} from ephemeral_port {ephemeral_port}")
+
+                #new_pkt = IP( dst=HONEYPOT_IP) / TCP(sport=int(ephemeral_port), dport= int(HONEYPOT_PORT),seq=tcp.seq, ack=tcp.ack, flags=tcp.flags, window=tcp.window) / tcp.payload
+            
+
+
+                octets = pkt[IP].src.split('.')
+                first_octet = int(octets[0])   
+                second_octet = int(octets[1])
+                source_ip_octet_1AND2 = (first_octet << 8) | second_octet
+
+                third_octet = int(octets[2])   
+                fourth_octet = int(octets[3])
+                source_ip_octet_3AND4 = (third_octet << 8) | fourth_octet
+            
+                tcp_layer=pkt[TCP]
+                new_pkt = IP( dst=HONEYPOT_IP) /tcp_layer
+                new_pkt[IP].id= source_ip_octet_1AND2
+                new_pkt[TCP].urgptr=source_ip_octet_3AND4
+                new_pkt[TCP].sport=int(ephemeral_port)
+                new_pkt[TCP].dport= int(HONEYPOT_PORT)
+                del new_pkt[IP].chksum
+                del new_pkt[TCP].chksum
+
+                #send(new_pkt, iface=INTERFACE,verbose=0)
+                self.sckt.send(new_pkt)
+                print(f"************outgoing packet to honeypot {new_pkt}")
+
+            # Check if it's return traffic from honeypot
+            #elif ip.src == HONEYPOT_IP : #  and tcp.sport == DESTINATION_PORT:
+        
+            elif from_honeypot_key in self.honeypot_facing_forwarding_rules.keys() : #  and tcp.sport == DESTINATION_PORT:
+                print(f"****Found {from_honeypot_key} in self.honeypot_facing_forwarding_rules.keys(), forwarding to attckr")
+                # Rewrite source to appear as if it's from forwarder IP:22
+                print(f"self.honeypot_facing_nat_table.keys() {self.honeypot_facing_nat_table.keys()} looking for tcp.dport {tcp.dport} or tcp.sport {tcp.sport}")
+                if tcp.dport in self.honeypot_facing_nat_table.keys():
+                    (overwrite_IP_dst,overwrite_tcp_dport,overwrite_tcp_sport)=self.honeypot_facing_nat_table[tcp.dport]
+                    overwrite_IP_src=self.honeypot_facing_forwarding_rules[from_honeypot_key]
+
+                    #print(f"****pkt rec for tcp.dport {tcp.dport}, overwriting with overwrite_tcp_dport {overwrite_tcp_dport} and overwrite_sport {overwrite_sport} and overwrite_IP_dst{overwrite_IP_dst} overwrite_IP_src {overwrite_IP_src}")
+                    #print(f"**** tcp.ack {tcp.ack} tcp.flags {tcp.flags}")
+
+                    #new_pkt = IP(src=overwrite_IP_src, dst=overwrite_IP_dst) / TCP(sport=int(overwrite_sport), dport=int(overwrite_tcp_dport),seq=tcp.seq, ack=tcp.ack,  flags=tcp.flags, window=tcp.window) / tcp.payload
+
+                    tcp_layer=pkt[TCP]
+                    new_pkt = IP(src=overwrite_IP_src, dst=overwrite_IP_dst) /tcp_layer
+                    #new_pkt[IP].src=overwrite_IP_src
+                    #new_pkt[IP].dst=overwrite_IP_dst
+                    new_pkt[TCP].sport=int(overwrite_tcp_sport)
+                    new_pkt[TCP].dport=int(overwrite_tcp_dport)
+                    del new_pkt[IP].chksum
+                    del new_pkt[TCP].chksum
+
+                
+                
+                    #send(new_pkt, iface=INTERFACE,verbose=0)
+                    self.sckt.send(new_pkt)
+                    print(f"************reply packet to attkr {new_pkt}")
+
+
     
     
 
