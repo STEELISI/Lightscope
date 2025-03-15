@@ -96,13 +96,14 @@ class Ports:
         self.internal_ip=""
         self.asn=0
         self.external_network_information=""
+        self.max_unwanted_buffer_size=1000
 
 
     def update_external_ip(self):
         response = requests.get("https://ipinfo.io/what-is-my-ip")
         response=response.json()
         self.external_ip=response["ip"]
-        self.log_local_terminal_and_GUI_WARN(f"external IP found {response["ip"]}" ,5)
+        self.log_local_terminal_and_GUI_WARN(f"external IP found {self.external_ip}" ,6)
         self.update_network_information(self.external_ip)
         
 
@@ -163,7 +164,7 @@ class Ports:
         first_octet_dir = os.path.join(base_dir, str(first_octet))
         if not os.path.isdir(first_octet_dir):
             # No directory for this first octet
-            self.lookup_network_information_list[ip_str]=("error", "first octet filepath")
+            self.lookup_network_information_list[ip_str]=("error", "No directory for this first octet")
             return ("error", "first octet filepath")
 
         # Find the appropriate file for the second octet
@@ -534,7 +535,10 @@ class Ports:
         self.log_local_terminal_and_GUI_WARN(f"Report_unwanted_traffic {current_packet.packet.payload}, packet num {current_packet.packet_num} payload{load}",5)
         self.log_local_terminal_and_GUI_WARN(f"Unwanted traffic dump {current_packet.packet.show(dump=True)}",5)
 
-
+        #cap max report_output_buffer size
+        if len(self.report_output_buffer) > self.max_unwanted_buffer_size:
+            del self.report_output_buffer[0]
+        
         self.report_output_buffer.append(current_packet)
         self.log_local_terminal_and_GUI_WARN(f"Record added to self.report_output_buffer, which now has len {len(self.report_output_buffer)} and self.report_batch_length {self.report_batch_length}",4)
 
@@ -705,6 +709,7 @@ class Ports:
         current_internal_ip=self.get_internal_host_ip()
         if self.internal_ip !=current_internal_ip:
             self.internal_ip=current_internal_ip
+            self.log_local_terminal_and_GUI_WARN(f"internal_ip updated {self.internal_ip}" ,6)
 
             if self.internal_ip not in self.currently_open_ip_list:
                 self.currently_open_ip_list[self.internal_ip]={}

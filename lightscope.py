@@ -191,7 +191,9 @@ def start_live_capture(interface):
     #print(internal_ip)
     interface=Port_status.get_interface_name(internal_ip)
     print(f"collecting on interface {interface}")
-    Port_status.update_external_ip()
+    #Port_status.update_external_ip()
+    print(f"To view your logs, please visit XXXXXXXXXXXXXXXXXXXXXXXXXXX todo for report")
+
         
 
     print(f"Platform {platform} detected")
@@ -200,7 +202,7 @@ def start_live_capture(interface):
         sniffobj = None
         try:
             if interface:
-                print(f"Capturing on interface {interface}")
+                #print(f"Capturing on interface {interface}")
                 if args.pcap:
                     try:
                         sniffobj = Sniff(interface, count=-1, promisc=1, out_file=filepath)
@@ -214,7 +216,7 @@ def start_live_capture(interface):
             else:
                 interface=conf.iface
                 # interface=get_first_iface()
-                print(f"Capturing on interface {interface}")
+                #print(f"Capturing on interface {interface}")
                 if args.pcap:
                     try:
                         sniffobj = Sniff(interface, count=-1, promisc=1, out_file=filepath)
@@ -241,7 +243,7 @@ def start_live_capture(interface):
         sniffobj = None
         try:
             interface = conf.iface.name
-            print(f"Capturing on interface {interface}")
+            #print(f"Capturing on interface {interface}")
             if args.pcap:
                 try:
                     sniffobj = Sniff(interface, count=-1, promisc=1, out_file=filepath)
@@ -271,7 +273,7 @@ def start_live_capture(interface):
             while True:
                 try:
                     if interface:
-                        print(f"Capturing on interface {interface}")
+                        #print(f"Capturing on interface {interface}")
                         try:
                             sniff(iface=interface,prn=packet_handler,store =False)
                         except Exception as e:
@@ -296,7 +298,7 @@ def start_live_capture(interface):
         else:
             while True:
                 if interface:
-                    print(f"Capturing on interface {interface}")
+                    #print(f"Capturing on interface {interface}")
                     # interface = 'Wi-Fi 2'
                     # print('here there and everywhere')
                     try:
