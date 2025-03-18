@@ -110,7 +110,7 @@ class Ports:
 
     def update_network_information(self,external_ip):
         self.external_network_information=self.lookup_network_information(external_ip)
-        self.log_local_terminal_and_GUI_WARN(f"external_network_information found {self.external_network_information}" ,5)
+        self.log_local_terminal_and_GUI_WARN(f"external_network_information found {self.external_network_information}" ,6)
 
 
     def ip_to_int(self,ip_str):
@@ -137,7 +137,7 @@ class Ports:
         if pos < 0:
             # No start <= second_octet
             self.lookup_network_information_list[ip_str]=("error", "No start <= second_octet")
-            return ("error", "No start <= second_octet")
+            return ("error", "No start <= second_octet","None")
 
         chosen_start = starts[pos]
         return os.path.join(directory, f"{chosen_start}.txt")
@@ -151,28 +151,28 @@ class Ports:
         if len(parts) != 4:
             self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
             self.lookup_network_information_list[ip_str]=("error", "Invalid IPv4 address 4 parts")
-            return ("error", "Invalid IPv4 address 4 parts")
+            return ("error", "Invalid IPv4 address 4 parts","None")
         try:
             first_octet = int(parts[0])
             second_octet = int(parts[1])
         except ValueError:
             self.log_local_terminal_and_GUI_WARN("Invalid IPv4 address.",3)
             self.lookup_network_information_list[ip_str]=("error", "Invalid IPv4 address octets")
-            return ("error", "Invalid IPv4 address octets")
+            return ("error", "Invalid IPv4 address octets","None")
 
         # Construct the directory for the first octet
         first_octet_dir = os.path.join(base_dir, str(first_octet))
         if not os.path.isdir(first_octet_dir):
             # No directory for this first octet
             self.lookup_network_information_list[ip_str]=("error", "No directory for this first octet")
-            return ("error", "first octet filepath")
+            return ("error", "first octet filepath","None")
 
         # Find the appropriate file for the second octet
         file_path = self.find_file_for_second_octet(first_octet_dir, second_octet)
         if file_path is None or not os.path.exists(file_path):
             # No file for this second octet range
             self.lookup_network_information_list[ip_str]=("error", "second octet filepath")
-            return ("error", "second octet filepath")
+            return ("error", "second octet filepath","None")
 
         lookup_network_information_int = self.ip_to_int(ip_str)
 
@@ -183,9 +183,9 @@ class Ports:
                 if not line:
                     continue
                 parts_line = line.split(',')
-                if len(parts_line) < 4:
+                if len(parts_line) < 5:
                     continue
-                start_ip_str, end_ip_str, net_type, country = parts_line[0], parts_line[1], parts_line[2], parts_line[3]
+                start_ip_str, end_ip_str, net_type, country, asn = parts_line[0], parts_line[1], parts_line[2], parts_line[3], parts_line[4]
 
                 try:
                     start_ip_int = self.ip_to_int(start_ip_str)
@@ -195,12 +195,12 @@ class Ports:
                     continue
 
                 if start_ip_int <= lookup_network_information_int <= end_ip_int:
-                    self.lookup_network_information_list[ip_str]=(net_type, country)
-                    return (net_type, country)
+                    self.lookup_network_information_list[ip_str]=(net_type, country,asn)
+                    return (net_type, country,asn)
 
 
         self.lookup_network_information_list[ip_str]=("None", "IP not in dataset")
-        return ("None", "IP not in dataset")
+        return ("None", "IP not in dataset","None")
 
     
     def open_port(self,ip,port,proto,current_packet):
@@ -552,7 +552,7 @@ class Ports:
 
 
     def Connect_and_report(self):
-
+        print(f"self.external_network_information {self.external_network_information}")
         mydb = mysql.connector.connect(
           host="3.130.64.19",
           #host="steel.ant.isi.edu",
@@ -593,8 +593,9 @@ class Ports:
                 tcp_urgptr  ,\
                 dst_ip_country  ,\
                 dst_ip_net_type  ,\
+                asn  ,\
                 tcp_options \
-            ) VALUES ( %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s,%s,%s,%s, %s)"
+            ) VALUES ( %s,%s, %s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s,%s,%s,%s, %s)"
             val = (\
                 #system_time
                 current_packet.packet.time,\
@@ -653,6 +654,8 @@ class Ports:
                 #dst_ip_net_type  ,\
                 #self.lookup_network_information (current_packet.packet[IP].dst)[1],\
                 self.external_network_information[1],\
+                #asn
+                self.external_network_information[2],\
 
 
                 #tcp_options ,\ 
