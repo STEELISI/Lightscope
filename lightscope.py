@@ -1,13 +1,5 @@
-# python lightscope.py --interface "Ethernet"
-
 import sys
 from sys import platform
-
-# if (platform == 'darwin'):
-#     # if system is mac, then patch eel to prevent error
-#     from mac_patch import *
-#     modify_eel_init()
-
 import datetime
 from lightscope_core import *
 from scapy.all import *
@@ -24,102 +16,6 @@ import os
 import argparse
 import configparser
 import json
-
-
-
-def post_run_analysis(Port_status):
-    Port_status.log_local_terminal_and_GUI_WARN(f'********************************************************************',6)
-    Port_status.log_local_terminal_and_GUI_WARN(f'****Packet capture terminated at {datetime.datetime.now()} and ran for {datetime.datetime.now() - timenow}****',6)
-    Port_status.log_local_terminal_and_GUI_WARN(f'********************************************************************',6)
-    print("Begin post_run_analysis")
-    unwanted_ip_src=[]
-    unwanted_ip_dst=[]
-    unwanted_tcp_sport=[]
-    unwanted_tcp_dport=[]
-    unwanted_flags=[]
-    unwanted_payload_len=[]
-    unwanted_packet_num=[]
-    unwanted_payload=[]
-
-    print(f"We have {len(Port_status.report_unwanted)} unwanted packets found\n") 
-    for x in Port_status.report_unwanted:
-        unwanted_ip_src.append(x.packet[IP].src)
-        unwanted_ip_dst.append(x.packet[IP].dst)
-        unwanted_tcp_sport.append(x.packet[TCP].sport)
-        unwanted_tcp_dport.append(x.packet[TCP].dport)
-        unwanted_flags.append(x.packet[TCP].flags)
-        #print( binascii.hexlify(str(x.packet[TCP].payload.show(dump=True))))
-        # print( x.packet[TCP].payload.show(dump=True))
-        # print( x.packet[TCP].payload.show())
-         
-        unwanted_packet_num.append(x.packet_num)
-        unwanted_payload.append(x.packet[TCP].payload.show())
-
-    Unwanted_df=pd.DataFrame(
-        {'unwanted_ip_src': unwanted_ip_src,
-         'unwanted_ip_dst': unwanted_ip_dst,
-         'unwanted_tcp_sport': unwanted_tcp_sport,
-         'unwanted_tcp_dport': unwanted_tcp_dport,
-         'unwanted_flags': unwanted_flags,
-         'unwanted_packet_num': unwanted_packet_num,
-         'unwanted_payload': unwanted_payload
-        })
-
-    
-    #print(f"Unwanted_df.describe()\n {Unwanted_df.describe()}\n\n")
-    print(f"Unwanted_df['unwanted_ip_src'].value_counts()\n{Unwanted_df['unwanted_ip_src'].value_counts()}\n\n")
-    print(f"Unwanted_df['unwanted_ip_dst'].value_counts()\n{Unwanted_df['unwanted_ip_dst'].value_counts()}\n\n")
-    #print(f"Unwanted_df['unwanted_tcp_sport'].value_counts()\n{Unwanted_df['unwanted_tcp_sport'].value_counts()}\n\n")
-    #print(f"Unwanted_df['unwanted_tcp_dport'].value_counts()\n{Unwanted_df['unwanted_tcp_dport'].value_counts()}\n\n")
-    print(f"Unwanted_df['unwanted_flags'].value_counts()\n{Unwanted_df['unwanted_flags'].value_counts()}\n\n")
-    print(f"Unwanted_df['unwanted_payload'].value_counts()\n{Unwanted_df['unwanted_payload'].value_counts()}\n\n")
-    print(f"Unwanted_df.head()\n {Unwanted_df.head(50)}\n\n")
-
-    print(f"Unwanted_df.loc[Unwanted_df['unwanted_ip_src'] == '192.168.10.132']\n{Unwanted_df.loc[Unwanted_df['unwanted_ip_src'] == '192.168.10.132']}")
-    
-
-    print(f"*********** \n\n Ports Open and Hosts Discovered \n\n **********************")
-
-    sorted_currently_open_ip_list = list(Port_status.currently_open_ip_list.keys())
-    sorted_currently_open_ip_list.sort()
-
-    for openIP in   sorted_currently_open_ip_list:
-        print("############################################")
-        print(openIP)
-        #sock.send(openIP)
-        sorted_port_list = list(Port_status.currently_open_ip_list[openIP].keys())
-        sorted_port_list.sort()
-        print(f" {len(sorted_port_list)} Open ports")
-        if len(sorted_port_list) < 20:
-            for openPort in sorted_port_list:
-                print(f"Open port: {openPort}") 
-                for index in range(len(Port_status.currently_open_ip_list[openIP][openPort])):
-                    print(f"Protocol:{Port_status.currently_open_ip_list[openIP][openPort][index].proto}  Triggering Packet: {Port_status.currently_open_ip_list[openIP][openPort][index].packet.packet_num} {Port_status.currently_open_ip_list[openIP][openPort][index].packet.packet} \n") 
-        else:
-            print(f" \n## Tons of open ports \n##")
-    '''                           
-    for x in Port_status.report_unwanted:
-        print(f"{x.packet.payload} {x.packet_num} {x.packet.show(dump=True)}")
-    '''
-        
-    print(f"*********** \n\n Ports open but closed later \n\n **********************")    
-    sorted_currently_closed_ip_list = list(Port_status.previously_open_ip_list.keys())
-    sorted_currently_closed_ip_list.sort()
-
-    for openIP in   sorted_currently_closed_ip_list:
-        print("################CLOSED############################")
-        print(openIP)
-        #sock.send(openIP)
-        sorted_port_list = list(Port_status.previously_open_ip_list[openIP].keys())
-        sorted_port_list.sort()
-        print(f" {len(sorted_port_list)} Previously open ports")
-        if len(sorted_port_list) < 20:
-            for openPort in sorted_port_list:
-                print(f"Open port: {openPort}") 
-                for index in range(len(Port_status.previously_open_ip_list[openIP][openPort])):
-                    print(f"Protocol:{Port_status.previously_open_ip_list[openIP][openPort][index]} \n") 
-        else:
-            print(f" \n## Tons of open ports \n##")
         
         
 
@@ -166,16 +62,6 @@ def packet_handler(packet):
     packet_number=packet_number+1
 
 
-def read_from_file():
-
-    myreader = PcapReader(args.readfile)
-    packet_number = 0
-    Port_status=Ports()
-    for packet_to_add in myreader:
-        wrapped_packet_to_add=Packet_Wrapper(packet_to_add,packet_number)
-        Port_status.Process_packet(wrapped_packet_to_add)
-        packet_number=packet_number+1
-    Port_status.Shutdown_cleanup()   
 
 
 def start_live_capture(interface):
@@ -287,7 +173,6 @@ def start_live_capture(interface):
                             print(f"Exception caught, {e}\n\ncontinuing")
                 except KeyboardInterrupt:
                     Port_status.Shutdown_cleanup()
-                    post_run_analysis(Port_status)
                 except Exception as error:
                     print("An error occurred:", error)
                 finally:
@@ -305,7 +190,6 @@ def start_live_capture(interface):
                         sniff(iface=interface,prn=packet_handler,store =False)
                     except KeyboardInterrupt:
                         Port_status.Shutdown_cleanup()
-                        post_run_analysis(Port_status)
                     except Exception as e:
                         print(f"Exception caught, {e}\n\ncontinuing")
                 else:
@@ -314,14 +198,12 @@ def start_live_capture(interface):
                         sniff(prn=packet_handler,store =False)
                     except KeyboardInterrupt:
                         Port_status.Shutdown_cleanup()
-                        post_run_analysis(Port_status)
                     except Exception as e:
                         print(f"Exception caught, {e}\n\ncontinuing")
 
             
 
     Port_status.Shutdown_cleanup()
-    post_run_analysis(Port_status)
 
 
 class config_arguments:
@@ -385,12 +267,9 @@ def start_live_honeypot_forward(args):
 
 
 timenow=datetime.datetime.now()
-
-
 stop_event = Event()
 packet_buf = []
-
-#headless mode
+#headless mode only
 stop_event.clear()
 capture_thread = Thread(target=start_live_capture, args=(args.interface,))
 honeypot_forward_thread = Thread(target=start_live_honeypot_forward, args=(args,))

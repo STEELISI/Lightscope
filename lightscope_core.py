@@ -1,41 +1,22 @@
-#including https://github.com/python-eel/Eel
-# pip install eel
-#cd  Desktop\Lightscope_Test_Network\software\
-# python f-test.py
-
 import time
-#Open closed port list
-#wireshark filters tcp.flags.reset==1
 from scapy.all import *
 import collections
 from binascii import hexlify
 import logging
 from enum import Enum
 from pprint import pprint
-import pandas as pd
-pd.options.display.float_format = '{:.2f}'.format
-pd.set_option('display.max_columns', None)  
-pd.set_option('display.max_rows', None) 
-pd.options.display.width = 300
-import numpy as np
-import binascii
-
 logging_level=3
-
 import hashlib
 import ipaddress
 import random
-
 import mysql.connector
 import os
 import ipaddress
 import bisect
 import sys
-
 from scapy.all import *
 from collections import deque 
 import random
-
 import socket
 import psutil
 import requests
@@ -96,21 +77,43 @@ class Ports:
         self.internal_ip=""
         self.asn=0
         self.external_network_information=""
+        self.internal_network_information=""
         self.max_unwanted_buffer_size=1000
+        self.internal_ip_equals_external_ip=""
+        self.internal_is_private=""
+        self.external_is_private=""
 
+
+
+    def check_ip_is_private(self,ip_str):
+        try:
+            # Create an IP address object (works for both IPv4 and IPv6)
+            ip_obj = ipaddress.ip_address(ip_str)
+        
+            if ip_obj.is_private:
+                return(f"True")
+            else:
+                return(f"False")
+        except ValueError:
+            return(f" is not a valid IP address.")
 
     def update_external_ip(self):
         response = requests.get("https://ipinfo.io/what-is-my-ip")
         response=response.json()
         self.external_ip=response["ip"]
         self.log_local_terminal_and_GUI_WARN(f"external IP found {self.external_ip}" ,6)
-        self.update_network_information(self.external_ip)
-        
+        self.update_external_network_information(self.external_ip)
+        self.external_is_private=self.check_ip_is_private(self.external_ip)
 
 
-    def update_network_information(self,external_ip):
+    def update_external_network_information(self,external_ip):
         self.external_network_information=self.lookup_network_information(external_ip)
         self.log_local_terminal_and_GUI_WARN(f"external_network_information found {self.external_network_information}" ,6)
+
+
+    def update_internal_network_information(self,internal_ip):
+        self.internal_network_information=self.lookup_network_information(internal_ip)
+        self.log_local_terminal_and_GUI_WARN(f"internal_network_information found {self.internal_network_information}" ,6)
 
 
     def ip_to_int(self,ip_str):
@@ -560,6 +563,8 @@ class Ports:
           password="lightscope",
           database="lightscope"
         )
+
+
         mycursor = mydb.cursor()
 
 
@@ -591,11 +596,18 @@ class Ports:
                 tcp_window  ,\
                 tcp_chksum  ,\
                 tcp_urgptr  ,\
-                dst_ip_country  ,\
-                dst_ip_net_type  ,\
-                asn  ,\
+                ext_dst_ip_country  ,\
+                ext_dst_ip_net_type  ,\
+                ext_asn  ,\
+                int_dst_ip_country  ,\
+                int_dst_ip_net_type  ,\
+                int_asn  ,\
+                internal_ip_equals_external_ip  ,\
+                internal_is_private  ,\
+                external_is_private  ,\
+                open_ports,\
                 tcp_options \
-            ) VALUES ( %s,%s, %s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s,%s,%s,%s, %s)"
+            ) VALUES ( %s,%s, %s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s,%s,%s,%s, %s, %s,%s,%s,%s,%s, %s,%s,%s,%s,%s)"
             val = (\
                 #system_time
                 current_packet.packet.time,\
@@ -657,7 +669,18 @@ class Ports:
                 #asn
                 self.external_network_information[2],\
 
-
+                self.internal_network_information[0],\
+                #dst_ip_net_type  ,\
+                #self.lookup_network_information (current_packet.packet[IP].dst)[1],\
+                self.internal_network_information[1],\
+                #asn
+                self.internal_network_information[2],\
+                
+                self.internal_ip_equals_external_ip,\
+                self.internal_is_private,\
+                self.external_is_private,\
+                #open_ports
+                ','.join(str(v) for v in self.currently_open_ip_list[self.internal_ip]),\
                 #tcp_options ,\ 
                 ','.join(str(v) for v in current_packet.packet[TCP].options),\
                 #"test",\
@@ -717,7 +740,15 @@ class Ports:
             if self.internal_ip not in self.currently_open_ip_list:
                 self.currently_open_ip_list[self.internal_ip]={}
 
+            self.update_internal_network_information(self.internal_ip)
             self.update_external_ip()
+
+            if self.external_ip == self.internal_ip:
+                self.internal_ip_equals_external_ip="True"
+            else:
+                self.internal_ip_equals_external_ip="False"
+
+            self.internal_is_private=self.check_ip_is_private(self.internal_ip)
 
         return self.internal_ip
 
@@ -758,17 +789,6 @@ class Ports:
                 #TODO: maybe change logic here to detect MAC issues with ip addresses and ARP, for now if it's responding/originating ARP then you can remove unreplied ARPs
                 self.Clear_unreplied_ARPs(current_packet)
                 self.Remove_ARP_from_watch(current_packet)
-                '''
-        elif len(self.currently_open_ip_list) ==0: #If we don't have any IPs listed, i.e. we are in config stage of first run
-            if self.args.collection_ip == "self":
-                internal_ip=self.check_if_internal_ip_changed()
-                self.log_local_terminal_and_GUI_WARN(f"Monitoring our own IP, which we determine to be, {internal_ip}, ARP traffic ingnored ",6)
-            elif self.args.collection_ip.count('.') ==3 : #User defined IP address  
-                self.currently_open_ip_list[self.args.collection_ip]={}
-                self.log_local_terminal_and_GUI_WARN(f"Only monitoring single ip via config.ini file entry collection_ip != all, {self.args.collection_ip}, ARP traffic ingnored ",6)
-        else:
-            pass
-        '''
             
     
     def Shutdown_cleanup(self):
